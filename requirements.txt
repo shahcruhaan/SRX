@@ -1,0 +1,25 @@
+# SRX Platform - Systemic Risk Exchange
+# Install with: pip install -r requirements.txt
+
+# Web framework for the API backend
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# Interactive dashboard
+streamlit==1.41.1
+
+# Financial data downloader (Yahoo Finance)
+yfinance==0.2.51
+
+# Data manipulation (tables and math)
+pandas==2.2.3
+numpy==1.26.4
+
+# Interactive charts
+plotly==5.24.1
+
+# HTTP requests (used by streamlit to talk to the backend)
+requests==2.32.3
+
+# Date handling utilities
+python-dateutil==2.9.0
