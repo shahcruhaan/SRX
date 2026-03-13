@@ -1,134 +1,159 @@
-# SRX Landing Page Copy
+SRX Landing Page Copy
+1. HERO SECTION
 
----
+Headline
 
-## 1. HERO SECTION
+Measure Systemic Risk.
+Price Portfolio Crash Protection.
 
-**Headline:**
-Measuring Systemic Risk. Pricing Crash Protection.
+Subheadline
 
-**Subheadline:**
-A research platform for systemic risk analytics, portfolio stress modeling, and protection pricing under extreme market conditions.
+A research platform for systemic risk analytics, portfolio stress modeling, and crash protection pricing under extreme market conditions.
 
-**Description:**
-SRX provides institutional-grade tools for quantifying systemic stress in real time, estimating portfolio-specific drawdown exposure, and modeling the cost of crash protection across market regimes. Built on peer-reviewable methodology. Designed for the practitioners who need it most.
+Description
 
-**Button 1:** View Live Demo
-**Button 2:** Download Whitepaper
+SRX provides institutional-grade tools for measuring systemic stress in real time, estimating portfolio-specific drawdown exposure, and modeling the cost of crash protection across market regimes.
 
----
+Proof Line
 
-## 2. THE PROBLEM
+Built as a working prototype with a live risk dashboard, stress-testing engine, and clearinghouse simulation.
 
-**Section Title:** The Structural Gap in Crash Protection
+Buttons
 
-Portfolio managers and risk officers face a persistent structural problem: the tools available for hedging systemic crash risk are indirect, expensive, and poorly calibrated to the portfolios they are meant to protect.
+View Live Demo
+Download Whitepaper
 
-Most crash hedging today relies on index-level instruments — VIX derivatives, broad put spreads, tail-risk overlays benchmarked to the S&P 500. These tools introduce significant basis risk. A multi-asset portfolio with exposure to credit, rates, commodities, and digital assets bears little resemblance to the index underlying the hedge. When correlations spike during a crisis, the mismatch compounds.
+2. THE PROBLEM
 
-At the same time, protection becomes most expensive precisely when it is most needed. Implied volatility surges during stress events, and the cost of downside insurance can increase by multiples within days. There is no unified framework that connects real-time systemic risk measurement to dynamic protection pricing — and no infrastructure designed to make that connection institutional-grade.
+Section Title
 
-**Summary:**
+The Structural Gap in Crash Protection
 
-- Existing crash hedges use index proxies that introduce basis risk against actual portfolio exposures
-- Protection costs escalate sharply during the stress events they are designed to cover
-- Systemic risk measurement and protection pricing remain disconnected disciplines
-- No platform currently integrates real-time risk analytics with portfolio-specific crash protection modeling
+Portfolio managers face a persistent structural problem: the tools used to hedge systemic crashes are indirect and poorly aligned with the portfolios they protect.
 
----
+Most crash hedging relies on index-level instruments such as VIX derivatives or S&P 500 put structures. These instruments introduce significant basis risk. A multi-asset portfolio exposed to credit, rates, commodities, and digital assets behaves very differently from the index underlying the hedge.
 
-## 3. THE PRODUCT
+Protection also becomes most expensive when it is most needed. During stress events implied volatility surges and the cost of downside protection can multiply within days.
 
-**Section Title:** The SRX Platform
+What is missing is a unified framework that links systemic risk measurement to protection pricing.
 
-SRX is a systemic risk analytics platform that connects market-wide stress measurement to portfolio-level protection pricing. Built for institutional research and risk management.
+Summary
 
-**Card 1:**
-**Systemic Risk Monitoring (GSRI / SRS)**
-Continuous measurement of global systemic stress through the Global Systemic Risk Index and Systemic Risk Score — composite signals derived from cross-asset volatility, liquidity conditions, correlation dynamics, and drawdown acceleration.
+• Index-based crash hedges introduce basis risk against actual portfolio exposures
+• Protection costs spike during market stress
+• Systemic risk measurement and protection pricing remain disconnected
+• No platform integrates real-time systemic analytics with portfolio-specific crash protection modeling
 
-**Card 2:**
-**Portfolio Stress Testing**
-Scenario-based analysis projecting portfolio-specific impact under historical and hypothetical market dislocations, including projected drawdowns, stressed volatility, and asset-level loss attribution. Each portfolio is scored using the Portfolio Risk Index (PRI) — a composite measure of volatility, correlation, concentration, and tail risk.
+3. THE PRODUCT
 
-**Card 3:**
-**Crash Protection Pricing**
-Actuarial estimation of crash protection premiums calibrated to real-time systemic conditions, portfolio risk characteristics, and user-defined coverage parameters.
+Section Title
 
----
+The SRX Platform
 
-## 4. HOW IT WORKS
+SRX is a systemic risk analytics platform that connects market-wide stress measurement with portfolio-level protection pricing.
 
-**Section Title:** From Measurement to Protection
+Systemic Risk Monitoring (GSRI / SRS)
 
-**Step 1 — Measure Systemic Stress**
-Aggregate volatility, liquidity, correlation, and drawdown signals across major asset classes into a single real-time systemic risk score.
+Continuous measurement of systemic stress using the Global Systemic Risk Index and Systemic Risk Score. These signals combine cross-asset volatility, liquidity conditions, correlation spikes, and drawdown acceleration.
 
-**Step 2 — Model Portfolio-Specific Risk**
-Decompose individual portfolio exposure across volatility, concentration, correlation, and tail risk dimensions to produce a composite risk index.
+Portfolio Stress Testing
 
-**Step 3 — Estimate Crash Protection Pricing**
-Calculate the implied cost of portfolio-specific crash protection using an actuarial framework adjusted for current systemic conditions and portfolio risk profile.
+Scenario analysis projecting portfolio impact under historical and hypothetical crises. Each portfolio receives a Portfolio Risk Index (PRI) based on volatility, correlation, concentration, and tail-risk exposure.
 
-**Step 4 — Simulate Market Resilience**
-Run loss events through a multi-layer capital structure to assess clearinghouse absorption capacity and identify systemic failure thresholds.
+Crash Protection Pricing
 
----
+Actuarial estimation of crash protection premiums calibrated to systemic conditions, portfolio volatility, and user-defined coverage parameters.
 
-## 5. WHY IT MATTERS
+4. HOW IT WORKS
 
-**Section Title:** Connecting Risk Analytics to Market Infrastructure
+Section Title
 
-Systemic risk is measured by academics, monitored by regulators, and feared by portfolio managers — but it is not yet connected to a market mechanism that prices and distributes it efficiently. SRX is designed to close that gap.
+From Measurement to Protection
 
-The platform reduces basis risk in crash hedging by pricing protection against the actual portfolio, not an index proxy. It improves systemic risk visibility by synthesizing cross-asset signals into interpretable, actionable scores. And it connects analytics to market design by modeling how a clearinghouse-grade capital structure would absorb losses under stress.
+Step 1 — Measure Systemic Stress
 
-**Significance:**
+Aggregate volatility, liquidity, correlation, and drawdown signals across major asset classes into a real-time systemic risk score.
 
-- Reduces basis risk by aligning crash protection to portfolio-specific exposures rather than index benchmarks
-- Improves systemic risk visibility through composite scoring across volatility, liquidity, correlation, and drawdown channels
-- Connects real-time analytics to market structure by integrating risk measurement with protection pricing and capital adequacy modeling
-- Provides a research foundation for future systemic risk infrastructure — a working prototype of the analytical engine that would underpin a centralized crash protection exchange
+Step 2 — Model Portfolio Risk
 
----
+Decompose portfolio exposures across volatility, concentration, correlation, and tail risk to generate a Portfolio Risk Index.
 
-## 6. WHITEPAPER / DEMO SECTION
+Step 3 — Estimate Protection Pricing
 
-**Section Title:** Explore the Research Prototype
+Calculate the implied cost of portfolio-specific crash protection using an actuarial framework adjusted for systemic conditions.
 
-SRX is currently a working research prototype demonstrating systemic risk analytics, portfolio stress modeling, and crash protection pricing. The platform processes live market data, computes risk scores in real time, and generates protection price estimates through an interactive dashboard.
+Step 4 — Simulate Market Resilience
 
-The accompanying whitepaper describes the methodology behind the Global Systemic Risk Index, the Systemic Risk Score, the actuarial pricing framework, and the clearinghouse capital structure simulation.
+Run hypothetical loss events through a multi-layer capital structure to evaluate clearinghouse stability during systemic stress.
 
-**Button 1:** View Live Demo
-**Button 2:** Download Whitepaper
+5. WHY IT MATTERS
 
----
+Section Title
 
-## 7. METHODOLOGY ACCESS SECTION
+Connecting Risk Analytics to Market Infrastructure
 
-**Section Title:** Request the SRX Methodology Brief
+Systemic risk is studied by academics, monitored by regulators, and feared by portfolio managers. Yet it is rarely connected to a mechanism that prices and distributes it efficiently.
 
-We provide a concise methodology briefing for qualified institutional professionals interested in the analytical framework behind the SRX platform.
+SRX aims to close that gap by linking systemic risk measurement directly to protection pricing and market structure.
 
-The briefing covers the construction of the Systemic Risk Score and Global Systemic Risk Index, the actuarial pricing model for portfolio-specific crash protection, the five-layer default waterfall structure, and the dynamic gating framework that governs platform behavior under stress.
+Significance
 
-This material is prepared for hedge funds, asset managers, financial engineers, risk managers, and researchers working on systemic risk, portfolio protection, or market microstructure.
+• Reduces basis risk by aligning crash protection with actual portfolio exposures
+• Improves systemic risk visibility through cross-asset composite scoring
+• Connects risk analytics to market design through pricing and capital modeling
+• Provides a research foundation for future systemic risk infrastructure
 
-**Button:** Request Methodology Brief
+6. WHITEPAPER / DEMO SECTION
 
----
+Section Title
 
-## 8. FOOTER
+Explore the Research Prototype
 
-**Name:** Systemic Risk Exchange (SRX)
+SRX is a working research prototype demonstrating systemic risk analytics, portfolio stress modeling, and crash protection pricing.
 
-**Description:** Research prototype exploring systemic risk analytics and portfolio-level crash protection modeling.
+The platform processes live market data, generates systemic risk scores, and produces protection price estimates through an interactive dashboard.
 
-**Contact:** research@srx-platform.com
+The accompanying whitepaper describes the methodology behind the Global Systemic Risk Index, the Systemic Risk Score, the pricing model, and the clearinghouse simulation.
 
-**Disclaimer:** SRX is a research prototype developed for analytical and educational purposes. It is not a regulated exchange, trading system, or financial product. Nothing on this platform constitutes financial advice, an offer to trade, or a solicitation of any kind. All data is sourced from public market feeds and all calculations are model-implied estimates subject to significant limitations.
+Buttons
 
----
+View Live Demo
+Download Whitepaper
 
-*End of landing page copy.*
+7. METHODOLOGY ACCESS SECTION
+
+Section Title
+
+Request the SRX Methodology Brief
+
+A concise methodology briefing is available for institutional professionals interested in the analytical framework behind SRX.
+
+The briefing covers:
+
+• construction of the Systemic Risk Score and GSRI
+• the crash protection pricing framework
+• the five-layer default waterfall
+• the dynamic gating mechanism used during systemic stress
+
+Prepared for:
+
+• hedge funds
+• asset managers
+• financial engineers
+• risk managers
+• systemic risk researchers
+
+Button
+
+Request Methodology Brief
+
+8. FOOTER
+
+Systemic Risk Exchange (SRX)
+
+Research prototype exploring systemic risk analytics and portfolio-level crash protection modeling.
+
+Contact: research@srx-platform.com
+
+Disclaimer:
+SRX is a research prototype developed for analytical and educational purposes. It is not a regulated exchange, trading system, or financial product. Nothing on this platform constitutes financial advice or an offer to trade. All outputs are model-based estimates subject to significant limitations.
