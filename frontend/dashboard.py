@@ -843,3 +843,4 @@ elif page == "Dynamic Gating":
             if lv.get("actions"):
                 for action in lv["actions"]:
                     st.write(f"• {action}")
+                    
