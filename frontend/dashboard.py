@@ -22,6 +22,7 @@ from backend.pricing_engine import price_protection
 from backend.stress_engine import run_stress_test
 from backend.clearinghouse_simulation import simulate_default_waterfall
 from backend.gating_engine import evaluate_gating
+from backend.historical_validation import compute_walkforward_gsri, CRISIS_ERAS, SHOCK_MULTIPLIER
 
 # =============================================================================
 # CONFIG
@@ -229,7 +230,8 @@ with st.sidebar:
     page = st.radio(
         "Navigation",
         ["Overview", "Portfolio Risk Index", "GSRI & SRS", "Stress Testing",
-         "Protection Pricing", "Default Waterfall", "Dynamic Gating"],
+         "Protection Pricing", "Default Waterfall", "Dynamic Gating",
+         "Historical Validation"],
         label_visibility="collapsed",
     )
 
@@ -843,4 +845,232 @@ elif page == "Dynamic Gating":
             if lv.get("actions"):
                 for action in lv["actions"]:
                     st.write(f"• {action}")
-                    
+
+
+# =============================================================================
+# PAGE 8: HISTORICAL CRISIS VALIDATION
+# =============================================================================
+
+elif page == "Historical Validation":
+    st.markdown("# Historical Crisis Validation")
+    st.markdown(
+        '<p class="narrative">Walk-forward analysis with adaptive sensitivity calibration. '
+        'Short windows detect shock regimes; long windows detect structural decay. '
+        'Zero look-ahead bias.</p>',
+        unsafe_allow_html=True,
+    )
+
+    hv_c1, hv_c2, hv_c3 = st.columns([2, 1, 1])
+    with hv_c1:
+        era_key = st.selectbox("Crisis Era", list(CRISIS_ERAS.keys()),
+                                format_func=lambda k: CRISIS_ERAS[k]["label"])
+    with hv_c2:
+        hv_lookback = st.selectbox("Lookback Window", [20, 40, 60, 90, 120], index=2)
+    with hv_c3:
+        hv_benchmark = st.selectbox("Benchmark", ["SPY", "QQQ", "IWM", "EFA"], index=0)
+
+    hv_tickers_raw = tks.split(",") if tks else None
+
+    if st.button("Run Walk-Forward Analysis", type="primary"):
+        with st.spinner("Computing walk-forward GSRI..."):
+            hv_result = compute_walkforward_gsri(
+                tickers=hv_tickers_raw, era_key=era_key,
+                lookback=hv_lookback, benchmark=hv_benchmark,
+            )
+
+        if _err(hv_result):
+            pass
+        else:
+            era = hv_result["era"]
+            gsri_df = hv_result["gsri_series"]
+            bm_prices = hv_result["benchmark_prices"]
+            regime = hv_result["regime"]
+            crash_ts = pd.to_datetime(era["crash_date"])
+            bottom_ts = pd.to_datetime(era["bottom_date"])
+
+            # ---- Regime banner ----
+            regime_colors = {
+                "Structural Decay": ELEVATED, "Exogenous Shock": CRITICAL,
+                "Early Warning": SAFE, "Exogenous Shock (Reactive)": ELEVATED,
+                "Below Threshold": NEUTRAL,
+            }
+            rc = regime_colors.get(regime["regime"], NEUTRAL)
+
+            # Regime definitions for the tooltip
+            regime_help = {
+                "Structural Decay": (
+                    "The GSRI crossed the Elevated threshold (50) more than 100 trading days "
+                    "before the crash date. This indicates a slow, sustained buildup of systemic "
+                    "fragility — rising cross-asset correlation, deteriorating liquidity, and "
+                    "increasing concentration risk accumulating over months. "
+                    "Analogous to the subprime credit buildup in 2007–2008."
+                ),
+                "Exogenous Shock": (
+                    "The GSRI crossed Elevated within 10 days of the crash, driven by the "
+                    "Shock Multiplier (1.25×) activating when volatility or drawdown doubled "
+                    "within 5 trading days. This indicates a sudden, external dislocation — "
+                    "the system went from calm to crisis faster than the lookback window "
+                    "could detect through gradual buildup. Analogous to COVID-19 in March 2020."
+                ),
+                "Early Warning": (
+                    "The GSRI reached Elevated between 10 and 100 days before the crash. "
+                    "The signal provided actionable lead time for portfolio hedging."
+                ),
+                "Exogenous Shock (Reactive)": (
+                    "The Shock Multiplier activated during the crash as volatility doubled "
+                    "within 5 days, but the GSRI only crossed Elevated after the crash began. "
+                    "The speed of the dislocation exceeded the lookback window's capacity "
+                    "for advance warning, but the system correctly identified the break in real-time."
+                ),
+                "Below Threshold": (
+                    "The GSRI did not reach the Elevated threshold (50) for this era and "
+                    "lookback configuration. Try a shorter lookback window for faster sensitivity "
+                    "or add more diverse tickers to increase cross-asset signal coverage."
+                ),
+            }
+
+            help_text = regime_help.get(regime["regime"], "")
+            st.markdown(
+                f"<div class='gate-banner' style='background-color:{rc};'>"
+                f"<h1>{regime['regime'].upper()}</h1>"
+                f"<p>Lead time: {regime['lead_days']} trading days</p>"
+                f"</div>", unsafe_allow_html=True,
+            )
+            # Help tooltip explaining what this regime means
+            st.caption(
+                f"ⓘ **What is {regime['regime']}?** — {help_text}"
+            )
+
+            # ---- Metrics ----
+            pre_crash = gsri_df[gsri_df["date"] < crash_ts]
+            pre_peak = pre_crash["gsri"].max() if not pre_crash.empty else 0
+            overall_peak = gsri_df["gsri"].max()
+            shock_fired = gsri_df["shock_multiplier"].max() > 1.0
+
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Pre-Crash Peak", f"{pre_peak:.1f}")
+            mc2.metric("Overall Peak", f"{overall_peak:.1f}")
+            mc3.metric("Lead Time", f"{regime['lead_days']}d")
+            mc4.metric(
+                "Shock ×1.25",
+                "Fired" if shock_fired else "Inactive",
+                help=(
+                    "The Shock Multiplier activates when Volatility or Drawdown scores "
+                    "double (increase by 100%+) within any rolling 5-day window. When active, "
+                    "the final GSRI is multiplied by 1.25× to reflect the acceleration of "
+                    "systemic stress. This ensures fast-moving events like COVID break past "
+                    "the Elevated threshold even when longer lookback windows dilute the signal."
+                ),
+            )
+
+            # ---- Crisis Narrative ----
+            st.markdown("### Crisis Narrative")
+            st.info(regime["narrative"])
+
+            st.markdown("---")
+
+            # ---- Dual-axis chart with RISK ZONE SHADING ----
+            st.markdown("### GSRI vs. Benchmark Price")
+
+            from plotly.subplots import make_subplots
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+            # Risk zone background shading on the secondary (GSRI) y-axis
+            zone_defs = [
+                (0, 30, "rgba(74,124,89,0.07)", "Normal"),
+                (30, 50, "rgba(196,144,50,0.07)", "Monitoring"),
+                (50, 75, "rgba(196,144,50,0.15)", "Elevated"),
+                (75, 100, "rgba(184,50,50,0.12)", "Critical"),
+            ]
+            for y0, y1, color, label in zone_defs:
+                fig.add_hrect(
+                    y0=y0, y1=y1, fillcolor=color, line_width=0,
+                    secondary_y=True,
+                    annotation_text=label, annotation_position="right",
+                    annotation_font_size=9, annotation_font_color=TX3,
+                )
+
+            # Benchmark price
+            if not bm_prices.empty:
+                fig.add_trace(go.Scatter(
+                    x=bm_prices.index, y=bm_prices.values,
+                    name=f"{hv_benchmark} Price", mode="lines",
+                    line=dict(color="#6888a8", width=1.5),
+                ), secondary_y=False)
+
+            # GSRI
+            fig.add_trace(go.Scatter(
+                x=gsri_df["date"], y=gsri_df["gsri"],
+                name="GSRI", mode="lines",
+                line=dict(color="#d4a24e", width=2.5),
+            ), secondary_y=True)
+
+            # Shock multiplier markers
+            shocked = gsri_df[gsri_df["shock_multiplier"] > 1.0]
+            if not shocked.empty:
+                fig.add_trace(go.Scatter(
+                    x=shocked["date"], y=shocked["gsri"],
+                    name="Shock ×1.25", mode="markers",
+                    marker=dict(color=CRITICAL, size=6, symbol="triangle-up"),
+                ), secondary_y=True)
+
+            # Crisis lines
+            for ts, color, label, ypos in [
+                (crash_ts, CRITICAL, era["annotation"], 0.95),
+                (bottom_ts, SAFE, "Market Bottom", 0.05),
+            ]:
+                fig.add_shape(type="line", x0=ts, x1=ts, y0=0, y1=1,
+                              yref="paper", line=dict(color=color, width=1.5, dash="dash"))
+                fig.add_annotation(x=ts, y=ypos, yref="paper", text=label,
+                                    showarrow=False, font=dict(color=color, size=10),
+                                    xanchor="left", xshift=5)
+
+            fig.update_layout(
+                **_cl(520, legend=dict(orientation="h", y=-0.12)),
+                yaxis_title=f"{hv_benchmark} Price ($)",
+                yaxis2_title="GSRI (0–100)",
+            )
+            fig.update_yaxes(range=[0, 100], secondary_y=True, gridcolor=GRID)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # ---- Indicator Breakdown ----
+            st.markdown("### Indicator Breakdown")
+            fig2 = go.Figure()
+            for col, (color, label) in {
+                "volatility": ("#8a7e6a", "Volatility"),
+                "correlation": ("#5c7fa0", "Correlation"),
+                "liquidity": ("#7a6888", "Liquidity"),
+                "drawdown": ("#5c8a72", "Drawdown"),
+            }.items():
+                fig2.add_trace(go.Scatter(
+                    x=gsri_df["date"], y=gsri_df[col], name=label,
+                    mode="lines", line=dict(color=color, width=1.5)))
+
+            fig2.add_trace(go.Scatter(
+                x=gsri_df["date"], y=gsri_df["gsri"], name="GSRI",
+                mode="lines", line=dict(color="#d4a24e", width=2.5)))
+
+            for ts, color in [(crash_ts, CRITICAL), (bottom_ts, SAFE)]:
+                fig2.add_shape(type="line", x0=ts, x1=ts, y0=0, y1=1,
+                              yref="paper", line=dict(color=color, width=1.5, dash="dash"))
+
+            fig2.update_layout(**_cl(400, yaxis_title="Score (0–100)"))
+            st.plotly_chart(fig2, use_container_width=True)
+
+            # ---- Signal Snapshot ----
+            st.markdown("### Signal Snapshot")
+            snap = hv_result["signal_snapshots"]
+            if not snap.empty:
+                st.dataframe(snap, hide_index=True, use_container_width=True)
+
+            # ---- Methodology ----
+            st.markdown("---")
+            th = hv_result["thresholds"]
+            st.markdown(
+                f"**Methodology**: {hv_lookback}-day lookback. "
+                f"Thresholds — Vol: [{th['vol'][0]:.0%}, {th['vol'][1]:.0%}], "
+                f"Corr: [{th['corr'][0]}, {th['corr'][1]}], "
+                f"DD: [{th['dd'][0]:.0%}, {th['dd'][1]:.0%}]. "
+                f"Shock multiplier: ×{SHOCK_MULTIPLIER} on 5-day doubling. "
+                f"Tickers: {', '.join(hv_result['tickers_used'])}."
+            )
