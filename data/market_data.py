@@ -33,7 +33,6 @@ import sys
 import time
 import pandas as pd
 import numpy as np
-import requests
 
 try:
     import yfinance as yf
@@ -42,6 +41,13 @@ except ImportError:
         "\n\nERROR: 'yfinance' is not installed.\n"
         "Fix: pip install yfinance\n"
     )
+
+# Disable yfinance's timezone cache to prevent stale tz data from
+# triggering Yahoo's bot detection on cache mismatches.
+try:
+    yf.set_tz_cache(False)
+except AttributeError:
+    pass  # Older yfinance versions don't have this — safe to skip
 
 # =============================================================================
 # CONFIGURATION
@@ -57,37 +63,6 @@ DEFAULT_TICKERS = [
 ]
 
 DEFAULT_PERIOD = "2y"
-
-
-def _make_session() -> requests.Session:
-    """
-    Create a requests.Session with browser-like headers.
-
-    Yahoo Finance serves a bot-challenge HTML page to requests that lack
-    realistic browser headers. By setting User-Agent and Accept headers
-    that match a real Chrome browser, we make the request indistinguishable
-    from a human visiting finance.yahoo.com.
-
-    yf.download() accepts a session= parameter and uses it for all HTTP
-    calls internally, so these headers propagate to every Yahoo request.
-    """
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-    })
-    return s
 
 
 # =============================================================================
@@ -194,14 +169,17 @@ def _batch_download(tickers: list, period: str = DEFAULT_PERIOD) -> dict:
     # Batch download the uncached tickers
     print(f"  [BATCH]  Downloading {len(to_download)} tickers: {to_download}")
 
-    results = dict(cached)  # Start with cached data
-    session = _make_session()  # Humanized HTTP session
+    results = dict(cached)
 
     for attempt in range(1, 4):  # Up to 3 attempts
         if not to_download:
             break
 
         try:
+            # Let yfinance manage its own curl_cffi session internally.
+            # Do NOT pass session= — modern yfinance (0.2.40+) uses
+            # curl_cffi which handles TLS fingerprinting automatically,
+            # matching a real browser's handshake signature.
             raw = yf.download(
                 tickers=to_download,
                 period=period,
@@ -209,7 +187,6 @@ def _batch_download(tickers: list, period: str = DEFAULT_PERIOD) -> dict:
                 auto_adjust=True,
                 threads=True,
                 progress=False,
-                session=session,
             )
 
             if raw is None or raw.empty:
