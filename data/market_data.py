@@ -33,6 +33,7 @@ import sys
 import time
 import pandas as pd
 import numpy as np
+import requests
 
 try:
     import yfinance as yf
@@ -56,6 +57,37 @@ DEFAULT_TICKERS = [
 ]
 
 DEFAULT_PERIOD = "2y"
+
+
+def _make_session() -> requests.Session:
+    """
+    Create a requests.Session with browser-like headers.
+
+    Yahoo Finance serves a bot-challenge HTML page to requests that lack
+    realistic browser headers. By setting User-Agent and Accept headers
+    that match a real Chrome browser, we make the request indistinguishable
+    from a human visiting finance.yahoo.com.
+
+    yf.download() accepts a session= parameter and uses it for all HTTP
+    calls internally, so these headers propagate to every Yahoo request.
+    """
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    })
+    return s
 
 
 # =============================================================================
@@ -163,6 +195,7 @@ def _batch_download(tickers: list, period: str = DEFAULT_PERIOD) -> dict:
     print(f"  [BATCH]  Downloading {len(to_download)} tickers: {to_download}")
 
     results = dict(cached)  # Start with cached data
+    session = _make_session()  # Humanized HTTP session
 
     for attempt in range(1, 4):  # Up to 3 attempts
         if not to_download:
@@ -176,6 +209,7 @@ def _batch_download(tickers: list, period: str = DEFAULT_PERIOD) -> dict:
                 auto_adjust=True,
                 threads=True,
                 progress=False,
+                session=session,
             )
 
             if raw is None or raw.empty:
@@ -351,7 +385,12 @@ def get_market_prices(
 
         close_prices = pd.DataFrame(close_dict)
         rows_before = len(close_prices)
-        close_prices = close_prices.dropna()
+
+        # Forward-fill first: if one ticker has a single missing day (e.g.
+        # a holiday mismatch), carry the previous close forward rather than
+        # dropping the entire row. Then dropna removes only rows at the very
+        # start where there is no previous value to fill from.
+        close_prices = close_prices.ffill().dropna()
         rows_after = len(close_prices)
 
         if rows_before - rows_after > 0:
