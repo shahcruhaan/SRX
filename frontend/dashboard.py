@@ -1252,15 +1252,14 @@ elif page == "Historical Validation":
                 gsri_elevated = gsri_df[gsri_df["gsri"] >= 50]
                 gsri_first_50 = gsri_elevated.iloc[0]["date"] if not gsri_elevated.empty else None
 
-                # VIX breakout: normalized VIX > 50 (equivalent to crossing
-                # the midpoint of its own crisis-window range)
-                vix_norm = vix_data["vix_normalized"]
-                vix_breakout_mask = vix_norm[vix_norm > 50]
-                vix_first_50 = vix_breakout_mask.index[0] if not vix_breakout_mask.empty else None
+                # VIX breakout: raw VIX >= 30 (no look-ahead bias)
+                # This uses the pre-computed breakout date from the engine,
+                # which is based on raw VIX values, NOT normalized.
+                vix_first_break = vix_data.get("vix_breakout_date", None)
 
                 # Compute lead times relative to crash date
                 gsri_lead = (crash_ts - gsri_first_50).days if gsri_first_50 is not None else None
-                vix_lead = (crash_ts - pd.Timestamp(vix_first_50)).days if vix_first_50 is not None else None
+                vix_lead = (crash_ts - vix_first_break).days if vix_first_break is not None else None
 
                 sc1, sc2, sc3 = st.columns(3)
                 sc1.metric(
@@ -1270,8 +1269,8 @@ elif page == "Historical Validation":
                     delta_color="normal" if gsri_lead and gsri_lead > 0 else "off",
                 )
                 sc2.metric(
-                    "VIX → Breakout",
-                    pd.Timestamp(vix_first_50).strftime("%Y-%m-%d") if vix_first_50 is not None else "Never",
+                    "VIX ≥ 30 (Raw)",
+                    vix_first_break.strftime("%Y-%m-%d") if vix_first_break is not None else "Never",
                     delta=f"{vix_lead}d before crash" if vix_lead and vix_lead > 0 else None,
                     delta_color="normal" if vix_lead and vix_lead > 0 else "off",
                 )
@@ -1288,10 +1287,9 @@ elif page == "Historical Validation":
                     f'The GSRI is a multi-dimensional systemic regime detector combining '
                     f'volatility, liquidity, correlation, and drawdown signals. VIX reflects '
                     f'implied equity volatility only. Comparing both against {hv_benchmark} '
-                    f'price helps evaluate whether the GSRI provides earlier or more '
-                    f'structurally useful warning signals than the market\'s standard fear gauge. '
-                    f'VIX breakout is defined as normalized VIX exceeding 50 (the midpoint '
-                    f'of its crisis-window range).</p>',
+                    f'helps evaluate whether the GSRI provides earlier or more structurally '
+                    f'useful warning signals. VIX breakout is defined as raw VIX ≥ 30 '
+                    f'(standard institutional stress threshold, no normalization applied).</p>',
                     unsafe_allow_html=True,
                 )
 

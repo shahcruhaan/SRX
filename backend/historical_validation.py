@@ -37,12 +37,36 @@ from data.market_data import get_market_prices, get_market_returns, get_market_v
 # =============================================================================
 
 def normalize_series(series: pd.Series) -> pd.Series:
-    """Min-max normalize a Series to 0-100 over its range."""
+    """
+    Min-max normalize a Series to 0-100 over its range.
+
+    NOTE: This uses the full window min/max, which includes future data
+    relative to earlier dates. Acceptable for CHART VISUALIZATION only.
+    Do NOT use normalized values for timing comparisons (breakout dates).
+    For timing, use compute_vix_breakout_date() with raw VIX values.
+    """
     smin = series.min()
     smax = series.max()
     if smax == smin:
         return pd.Series(50.0, index=series.index)
     return ((series - smin) / (smax - smin) * 100).round(2)
+
+
+def compute_vix_breakout_date(vix_raw: pd.Series, threshold: float = 30.0):
+    """
+    Find the first date raw VIX >= threshold.
+
+    Uses RAW VIX values (not normalized) to avoid look-ahead bias.
+    The default threshold of 30 is a standard institutional marker:
+    VIX > 30 historically corresponds to elevated fear / stress regime.
+
+    Returns:
+        pd.Timestamp or None if VIX never crosses the threshold.
+    """
+    above = vix_raw[vix_raw >= threshold]
+    if above.empty:
+        return None
+    return pd.Timestamp(above.index[0])
 
 
 def fetch_vix_for_era(era: dict, gsri_dates) -> dict:
@@ -52,7 +76,8 @@ def fetch_vix_for_era(era: dict, gsri_dates) -> dict:
     Returns:
         {
             "vix_raw": pd.Series (raw VIX values, aligned),
-            "vix_normalized": pd.Series (0-100 normalized for chart overlay),
+            "vix_normalized": pd.Series (0-100, for CHART OVERLAY ONLY),
+            "vix_breakout_date": pd.Timestamp or None (raw VIX >= 30),
             "available": bool,
             "warning": str or None,
         }
@@ -71,24 +96,24 @@ def fetch_vix_for_era(era: dict, gsri_dates) -> dict:
         )
 
         if raw is None or raw.empty:
-            return {"available": False, "warning": "VIX data unavailable for this era."}
+            return {"available": False, "warning": "VIX data unavailable for this era.",
+                    "vix_breakout_date": None}
 
-        # Flatten MultiIndex if present
         if isinstance(raw.columns, pd.MultiIndex):
             raw.columns = raw.columns.get_level_values(0)
-
-        # Normalize column names
         raw.columns = [c.strip().title() for c in raw.columns]
 
         if "Close" not in raw.columns:
-            return {"available": False, "warning": "VIX data missing Close column."}
+            return {"available": False, "warning": "VIX data missing Close column.",
+                    "vix_breakout_date": None}
 
         if raw.index.tz is not None:
             raw.index = raw.index.tz_localize(None)
 
         vix = raw["Close"]
         if not isinstance(vix, pd.Series):
-            return {"available": False, "warning": "VIX Close is not a Series."}
+            return {"available": False, "warning": "VIX Close is not a Series.",
+                    "vix_breakout_date": None}
 
         # Align to GSRI dates via forward-fill then reindex
         gsri_idx = pd.DatetimeIndex(gsri_dates)
@@ -96,17 +121,24 @@ def fetch_vix_for_era(era: dict, gsri_dates) -> dict:
         vix_aligned = vix_aligned.dropna()
 
         if len(vix_aligned) < 10:
-            return {"available": False, "warning": f"Only {len(vix_aligned)} VIX data points after alignment."}
+            return {"available": False,
+                    "warning": f"Only {len(vix_aligned)} VIX data points after alignment.",
+                    "vix_breakout_date": None}
+
+        # Breakout computed from RAW values (no look-ahead bias)
+        breakout = compute_vix_breakout_date(vix_aligned, threshold=30.0)
 
         return {
             "vix_raw": vix_aligned,
-            "vix_normalized": normalize_series(vix_aligned),
+            "vix_normalized": normalize_series(vix_aligned),  # chart only
+            "vix_breakout_date": breakout,
             "available": True,
             "warning": None,
         }
 
     except Exception as e:
-        return {"available": False, "warning": f"VIX download failed: {e}"}
+        return {"available": False, "warning": f"VIX download failed: {e}",
+                "vix_breakout_date": None}
 
 # =============================================================================
 # CRISIS DEFINITIONS
@@ -160,6 +192,16 @@ SHOCK_ACCELERATION_THRESHOLD = 1.0  # 100% increase = doubling
 def _get_thresholds(lookback: int) -> dict:
     """
     Return scoring thresholds calibrated to the lookback window.
+
+    IMPORTANT METHODOLOGICAL NOTE:
+        These thresholds are HEURISTIC values, historically calibrated by
+        examining how raw signal values behaved during known crisis periods
+        (2008 GFC, 2020 COVID, 2022 Rate Shock). They are NOT statistically
+        estimated parameters fit by optimization inside this module.
+
+        Users should interpret all GSRI scores as research-prototype outputs,
+        not formally estimated predictive probabilities. The thresholds were
+        set a priori and are not adjusted per-crisis or per-run.
 
     Short windows (20d): tight thresholds → fast signal for flash crashes.
     Long windows (120d): deep thresholds → sustained stress for structural decay.
@@ -220,14 +262,24 @@ def _classify_regime(gsri_df: pd.DataFrame, era: dict) -> dict:
     """
     Classify the crisis detection as Structural or Exogenous Shock.
 
+    METHODOLOGICAL NOTE: All classification logic uses ONLY data up to
+    and including the crash date. Post-crash data is never used to justify
+    a regime label, preventing post-event leakage.
+
     Structural: GSRI ≥ 50 more than 100 days before crash.
-    Exogenous Shock: GSRI ≥ 50 within 10 days of crash AND shock multiplier fired.
+    Exogenous Shock: GSRI ≥ 50 within 10 days of crash AND shock multiplier
+                     fired on or before the crash date.
     """
     crash = pd.Timestamp(era["crash_date"])
+
+    # CRITICAL: Only use data up to and including the crash date.
+    # Using post-crash data would introduce post-event leakage.
+    up_to_crash = gsri_df[gsri_df["date"] <= crash]
     pre = gsri_df[gsri_df["date"] < crash]
 
     elevated = pre[pre["gsri"] >= 50]
-    shock_active = gsri_df["shock_multiplier"].max() > 1.0
+    # Shock activity assessed only from pre-crash/at-crash data
+    shock_active = up_to_crash["shock_multiplier"].max() > 1.0 if not up_to_crash.empty else False
 
     if not elevated.empty:
         first_elevated = elevated.iloc[0]["date"]
@@ -271,10 +323,8 @@ def _classify_regime(gsri_df: pd.DataFrame, era: dict) -> dict:
                 ),
             }
     else:
-        # Check if it reached elevated after crash
-        post = gsri_df[gsri_df["date"] >= crash]
-        post_elevated = post[post["gsri"] >= 50]
-        peak = gsri_df["gsri"].max()
+        # GSRI never reached Elevated before crash
+        peak_pre = up_to_crash["gsri"].max() if not up_to_crash.empty else 0
 
         if shock_active:
             return {
@@ -282,11 +332,11 @@ def _classify_regime(gsri_df: pd.DataFrame, era: dict) -> dict:
                 "lead_days": 0,
                 "first_elevated": crash,
                 "narrative": (
-                    f"The Shock Multiplier activated during the crash as volatility "
-                    f"doubled within 5 days. The GSRI peaked at {peak:.1f}. The speed "
-                    f"of the dislocation exceeded the lookback window's ability to "
-                    f"provide advance warning, but the Shock Multiplier correctly "
-                    f"identified the systemic break in real-time."
+                    f"The Shock Multiplier activated at or before the crash date as "
+                    f"volatility doubled within 5 days. The pre-crash GSRI peaked at "
+                    f"{peak_pre:.1f}. The speed of the dislocation exceeded the lookback "
+                    f"window's ability to provide advance warning, but the Shock "
+                    f"Multiplier correctly identified the systemic break."
                 ),
             }
         else:
@@ -295,9 +345,10 @@ def _classify_regime(gsri_df: pd.DataFrame, era: dict) -> dict:
                 "lead_days": 0,
                 "first_elevated": None,
                 "narrative": (
-                    f"The GSRI peaked at {peak:.1f}, below the Elevated threshold (50). "
-                    f"Try a shorter lookback window for faster sensitivity or verify "
-                    f"the selected tickers have sufficient cross-asset diversity."
+                    f"The pre-crash GSRI peaked at {peak_pre:.1f}, below the Elevated "
+                    f"threshold (50). Try a shorter lookback window for faster "
+                    f"sensitivity or verify the selected tickers have sufficient "
+                    f"cross-asset diversity."
                 ),
             }
 
@@ -332,7 +383,7 @@ def compute_walkforward_gsri(
 
     print(f"\n  [HIST]   {era['label']} | Lookback={lookback}d | Thresholds: {thresholds}")
 
-    all_prices, all_returns, all_volume = {}, {}, {}
+    all_prices, all_volume = {}, {}
 
     for t in tickers:
         try:
@@ -370,7 +421,6 @@ def compute_walkforward_gsri(
                 continue
 
             all_prices[t] = close_col
-            all_returns[t] = close_col.pct_change()
             if "Volume" in raw.columns and isinstance(raw["Volume"], pd.Series):
                 all_volume[t] = raw["Volume"]
 
@@ -381,9 +431,19 @@ def compute_walkforward_gsri(
     if not all_prices:
         return {"error": "No tickers had data for this era."}
 
-    prices = pd.DataFrame(all_prices).ffill().dropna()
-    returns = pd.DataFrame(all_returns).ffill().dropna()
-    volume = pd.DataFrame(all_volume).ffill().dropna() if all_volume else pd.DataFrame()
+    # METHODOLOGY FIX: Build aligned prices first, THEN compute returns.
+    # Forward-filling prices is acceptable (a stock's last known price
+    # persists until the next trade). Forward-filling RETURNS is wrong
+    # because it fabricates non-existent price movements.
+    prices = pd.DataFrame(all_prices).sort_index().ffill().dropna()
+
+    # Compute returns FROM the aligned prices (not from pre-computed per-ticker returns)
+    returns = prices.pct_change().dropna()
+
+    # Volume: do NOT forward-fill. Missing volume = no liquidity data for
+    # that date, which the Amihud computation should handle by using only
+    # valid overlapping entries in each slice.
+    volume = pd.DataFrame(all_volume).sort_index().dropna(how="all") if all_volume else pd.DataFrame()
 
     if prices.empty or returns.empty:
         return {"error": "No overlapping data for this era."}
@@ -426,10 +486,18 @@ def compute_walkforward_gsri(
         l_score = 0.0
         if not volume.empty:
             vol_slice = volume[volume.index <= t].tail(lookback)
-            shared = list(set(ret_slice.columns) & set(vol_slice.columns))
-            if shared and len(vol_slice) > 5:
-                amihud = (ret_slice[shared].abs() / vol_slice[shared].replace(0, np.nan)).mean().mean() * AMIHUD_SCALE
-                l_score = _score(amihud, ll, lh)
+            # Explicitly align returns and volume to the EXACT same dates
+            # and columns before division. Without this, pandas broadcasts
+            # across mismatched indices, producing NaN-contaminated or
+            # misaligned Amihud ratios.
+            common_cols = sorted(set(ret_slice.columns) & set(vol_slice.columns))
+            common_idx = ret_slice.index.intersection(vol_slice.index)
+            if common_cols and len(common_idx) >= 10:
+                ret_sub = ret_slice.loc[common_idx, common_cols]
+                vol_sub = vol_slice.loc[common_idx, common_cols].replace(0, np.nan)
+                amihud = (ret_sub.abs() / vol_sub).mean().mean() * AMIHUD_SCALE
+                if not np.isnan(amihud):
+                    l_score = _score(amihud, ll, lh)
 
         # M_t
         raw_dd = 0.0
