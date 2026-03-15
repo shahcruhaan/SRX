@@ -103,6 +103,14 @@ GSRI_WEIGHT_TREASURY_VOL = 0.15
 GSRI_WEIGHT_CRYPTO_VOL = 0.10
 GSRI_WEIGHT_CROSS_CORR = 0.25
 
+# Shock Multiplier — detects sudden acceleration in volatility or drawdown.
+# If either signal doubles within SHOCK_WINDOW trading days, the final
+# SRS/GSRI is multiplied by SHOCK_MULTIPLIER. This ensures exogenous shocks
+# (like COVID) break past thresholds even when the lookback dilutes the signal.
+SHOCK_MULTIPLIER = 1.25
+SHOCK_WINDOW = 5         # 5 trading days = 1 week
+SHOCK_THRESHOLD = 1.0    # 100% increase = doubling
+
 
 # =============================================================================
 # HELPER: Non-linear scoring function
@@ -143,6 +151,28 @@ def _nonlinear_score(value: float, low: float, high: float, exponent: float = 1.
     scored = normalized ** exponent
 
     return scored * 100.0
+
+
+def _compute_shock_series(v_scores: pd.Series, m_scores: pd.Series) -> pd.Series:
+    """
+    Compute the shock multiplier for each day in the time series.
+
+    If either the volatility score or drawdown score doubled within the
+    last SHOCK_WINDOW days, return SHOCK_MULTIPLIER (1.25). Otherwise 1.0.
+
+    This is applied element-wise to produce a full Series that can be
+    multiplied into the SRS or GSRI.
+    """
+    multipliers = pd.Series(1.0, index=v_scores.index)
+
+    for scores in [v_scores, m_scores]:
+        shifted = scores.shift(SHOCK_WINDOW)
+        # Where the past value was > 5 (non-trivial) and current is double
+        acceleration = (scores / shifted.replace(0, np.nan)).fillna(0)
+        shock_mask = (shifted > 5) & (acceleration >= (1.0 + SHOCK_THRESHOLD))
+        multipliers = multipliers.where(~shock_mask, SHOCK_MULTIPLIER)
+
+    return multipliers
 
 
 # =============================================================================
@@ -525,6 +555,11 @@ def compute_srs_series(
             SRS_WEIGHT_DRAWDOWN * m_scores
         )
 
+        # ---- Apply Shock Multiplier ----
+        # If volatility or drawdown doubled in 5 days, amplify by 1.25×.
+        shock = _compute_shock_series(v_scores, m_scores)
+        srs = srs * shock
+
         # Clamp to 0–100.
         srs = srs.clip(0, 100)
 
@@ -536,6 +571,7 @@ def compute_srs_series(
             "L_t_score": l_scores.round(2),
             "C_t_score": c_scores.round(2),
             "M_t_score": m_scores.round(2),
+            "shock_multiplier": shock,
             "V_t_raw": components["V_t"].round(6),
             "L_t_raw": components["L_t"].round(6),
             "C_t_raw": components["C_t"].round(6),
@@ -701,6 +737,12 @@ def compute_gsri_series(
             GSRI_WEIGHT_CRYPTO_VOL * crypto_vol_score +
             GSRI_WEIGHT_CROSS_CORR * cross_corr_score
         )
+
+        # ---- Apply Shock Multiplier ----
+        # Uses equity vol (primary risk signal) and cross-correlation (herding).
+        shock = _compute_shock_series(equity_vol_score, cross_corr_score)
+        gsri = gsri * shock
+
         gsri = gsri.clip(0, 100)
 
         # ---- Build output DataFrame ----
@@ -718,6 +760,7 @@ def compute_gsri_series(
             "treasury_vol": treasury_vol_score.round(2),
             "crypto_vol": crypto_vol_score.round(2),
             "cross_corr": cross_corr_score.round(2),
+            "shock_multiplier": shock,
         })
 
         # Drop warm-up NaN rows.
@@ -842,6 +885,7 @@ def calculate_gsri(
                 "volatility": float(row.get("equity_vol", 0)),
                 "credit": float(row.get("credit_stress", 0)),
                 "tail": float(row.get("treasury_vol", 0)),
+                "shock": float(row.get("shock_multiplier", 1.0)),
             })
 
         # ---- Also compute SRS for additional insight ----
@@ -871,6 +915,8 @@ def calculate_gsri(
             # ---- New SRS keys ----
             "srs_current": round(srs_current, 2),
             "srs_components": srs_components,
+            # ---- Shock Multiplier status ----
+            "shock_active": bool(gsri_df["shock_multiplier"].iloc[-1] > 1.0) if "shock_multiplier" in gsri_df.columns and len(gsri_df) > 0 else False,
         }
 
     except Exception as error:

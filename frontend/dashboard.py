@@ -239,7 +239,7 @@ with st.sidebar:
     st.markdown("##### Portfolio")
     tk_in = st.text_input("Tickers", value="SPY,HYG,TLT,GLD,BTC-USD")
     wt_in = st.text_input("Weights", value="0.40,0.20,0.20,0.10,0.10")
-    period = st.selectbox("Period", ["1y", "2y", "5y"], index=1)
+    period = st.selectbox("Period", ["1y", "2y", "5y", "10y"], index=1)
 
     st.markdown("---")
     st.markdown("##### Pricing")
@@ -324,6 +324,7 @@ if page == "Overview":
         with st.spinner("GSRI..."):
             gd = _gsri(period=period)
         if not _err(gd):
+            shock_now = gd.get("shock_active", False)
             st.metric("GSRI", f"{gd['current_gsri']:.1f}", gd["risk_level"],
                        help="Aggregate systemic risk benchmark.")
 
@@ -346,34 +347,124 @@ if page == "Overview":
             st.metric("Gate", f"Level {gt['level']}", gt["label"],
                        help="SRS-based dynamic gating.")
 
+    # Shock status indicator
+    if isinstance(gd, dict) and gd.get("shock_active"):
+        st.warning("Shock Multiplier (1.25×) is currently ACTIVE — volatility or drawdown doubled within 5 trading days.")
+
     st.markdown("---")
 
+    # ---- Interactive GSRI Historical Chart ----
     if isinstance(gd, dict) and "gsri_history" in gd:
         hdf = pd.DataFrame(gd["gsri_history"])
         if not hdf.empty:
+            hdf["date"] = pd.to_datetime(hdf["date"])
+
             st.markdown("### Global Systemic Risk Index — Historical")
+
+            # Sub-indicator toggle
+            show_sub = st.checkbox("Show Sub-Indicators", value=False,
+                                     help="Overlay Volatility, Correlation, Credit, and Treasury signals.")
+
             fig = go.Figure()
+
+            # ---- Risk zone background shading ----
+            fig.add_hrect(y0=0, y1=30, fillcolor="rgba(74,124,89,0.05)",
+                           line_width=0, annotation_text="Normal",
+                           annotation_position="right", annotation_font_size=9,
+                           annotation_font_color=TX3)
+            fig.add_hrect(y0=30, y1=50, fillcolor="rgba(196,144,50,0.05)",
+                           line_width=0, annotation_text="Monitoring",
+                           annotation_position="right", annotation_font_size=9,
+                           annotation_font_color=TX3)
+            fig.add_hrect(y0=50, y1=75, fillcolor="rgba(196,144,50,0.12)",
+                           line_width=0, annotation_text="Elevated",
+                           annotation_position="right", annotation_font_size=9,
+                           annotation_font_color=TX3)
+            fig.add_hrect(y0=75, y1=100, fillcolor="rgba(184,50,50,0.10)",
+                           line_width=0, annotation_text="Critical",
+                           annotation_position="right", annotation_font_size=9,
+                           annotation_font_color=TX3)
+
+            # ---- GSRI main line ----
             fig.add_trace(go.Scatter(
                 x=hdf["date"], y=hdf["gsri"], mode="lines", name="GSRI",
-                line=dict(color=LINE, width=2), fill="tozeroy", fillcolor=FILL,
+                line=dict(color=LINE, width=2),
+                fill="tozeroy", fillcolor=FILL,
+                hovertemplate="Date: %{x|%Y-%m-%d}<br>GSRI: %{y:.1f}<extra></extra>",
             ))
-            for cn, cl in [("correlation", SUB1), ("volatility", SUB2),
-                           ("credit", SUB3), ("tail", SUB4)]:
-                if cn in hdf.columns:
+
+            # ---- Shock markers (red diamonds) ----
+            if "shock" in hdf.columns:
+                shocked = hdf[hdf["shock"] > 1.0]
+                if not shocked.empty:
+                    # Determine which signal caused the shock for the tooltip
+                    hover_texts = []
+                    for _, row in shocked.iterrows():
+                        # Check which sub-indicator was highest
+                        subs = {"Volatility": row.get("volatility", 0),
+                                "Correlation": row.get("correlation", 0),
+                                "Credit": row.get("credit", 0),
+                                "Treasury": row.get("tail", 0)}
+                        driver = max(subs, key=subs.get)
+                        hover_texts.append(
+                            f"Shock Detected: {row['date'].strftime('%Y-%m-%d')}<br>"
+                            f"GSRI: {row['gsri']:.1f}<br>"
+                            f"Driver: {driver} ({subs[driver]:.1f})<br>"
+                            f"Multiplier: 1.25×"
+                        )
                     fig.add_trace(go.Scatter(
-                        x=hdf["date"], y=hdf[cn], mode="lines", name=cn.title(),
-                        line=dict(width=1, dash="dot", color=cl), opacity=0.45,
+                        x=shocked["date"], y=shocked["gsri"],
+                        mode="markers", name="Shock ×1.25",
+                        marker=dict(color=CRITICAL, size=7, symbol="diamond"),
+                        hovertext=hover_texts, hoverinfo="text",
                     ))
-            fig.add_hline(y=30, line_dash="dot", line_color=SAFE,
-                          annotation_text="Low", annotation_font_size=10,
-                          annotation_font_color=TX3)
-            fig.add_hline(y=55, line_dash="dot", line_color=ELEVATED,
-                          annotation_text="Elevated", annotation_font_size=10,
-                          annotation_font_color=TX3)
-            fig.add_hline(y=75, line_dash="dot", line_color=CRITICAL,
-                          annotation_text="Critical", annotation_font_size=10,
-                          annotation_font_color=TX3)
-            fig.update_layout(**_cl(420, yaxis_title="Score"))
+
+            # ---- Sub-indicator overlay (toggled) ----
+            if show_sub:
+                for cn, cl, label in [
+                    ("correlation", SUB1, "Correlation"),
+                    ("volatility", SUB2, "Volatility"),
+                    ("credit", SUB3, "Credit Stress"),
+                    ("tail", SUB4, "Treasury Vol"),
+                ]:
+                    if cn in hdf.columns:
+                        fig.add_trace(go.Scatter(
+                            x=hdf["date"], y=hdf[cn], mode="lines", name=label,
+                            line=dict(width=1, dash="dot", color=cl), opacity=0.4,
+                        ))
+
+            # ---- Threshold lines ----
+            fig.add_hline(y=50, line_dash="dot", line_color=ELEVATED, line_width=1)
+            fig.add_hline(y=75, line_dash="dot", line_color=CRITICAL, line_width=1)
+
+            # ---- Layout with range selector + slider ----
+            fig.update_layout(
+                **_cl(500,
+                    yaxis_title="GSRI Score (0–100)",
+                    yaxis=dict(range=[0, 100], gridcolor=GRID, gridwidth=1),
+                    xaxis=dict(
+                        gridcolor=GRID, gridwidth=1,
+                        rangeselector=dict(
+                            buttons=[
+                                dict(count=1, label="1M", step="month", stepmode="backward"),
+                                dict(count=6, label="6M", step="month", stepmode="backward"),
+                                dict(count=1, label="YTD", step="year", stepmode="todate"),
+                                dict(count=1, label="1Y", step="year", stepmode="backward"),
+                                dict(count=2, label="2Y", step="year", stepmode="backward"),
+                                dict(count=5, label="5Y", step="year", stepmode="backward"),
+                                dict(count=10, label="Max", step="year", stepmode="backward"),
+                            ],
+                            bgcolor=CARD, activecolor=DIV,
+                            font=dict(color=TX2, size=10),
+                            x=0, y=1.08,
+                        ),
+                        rangeslider=dict(visible=True, bgcolor=CARD, thickness=0.06),
+                    ),
+                    legend=dict(orientation="h", y=-0.22, font=dict(size=10, color=TX2)),
+                    margin=dict(l=48, r=24, t=48, b=80),
+                ),
+            )
+
             st.plotly_chart(fig, use_container_width=True)
 
 
