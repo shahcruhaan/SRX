@@ -31,6 +31,83 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from data.market_data import get_market_prices, get_market_returns, get_market_volume
 
+
+# =============================================================================
+# VIX COMPARISON HELPERS
+# =============================================================================
+
+def normalize_series(series: pd.Series) -> pd.Series:
+    """Min-max normalize a Series to 0-100 over its range."""
+    smin = series.min()
+    smax = series.max()
+    if smax == smin:
+        return pd.Series(50.0, index=series.index)
+    return ((series - smin) / (smax - smin) * 100).round(2)
+
+
+def fetch_vix_for_era(era: dict, gsri_dates) -> dict:
+    """
+    Download ^VIX data for a crisis era and align to the GSRI date index.
+
+    Returns:
+        {
+            "vix_raw": pd.Series (raw VIX values, aligned),
+            "vix_normalized": pd.Series (0-100 normalized for chart overlay),
+            "available": bool,
+            "warning": str or None,
+        }
+    """
+    import yfinance as yf
+
+    try:
+        window_start = pd.Timestamp(era["window_start"])
+        window_end = pd.Timestamp(era["window_end"])
+
+        raw = yf.download(
+            "^VIX",
+            start=(window_start - pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
+            end=(window_end + pd.Timedelta(days=5)).strftime("%Y-%m-%d"),
+            auto_adjust=True, progress=False,
+        )
+
+        if raw is None or raw.empty:
+            return {"available": False, "warning": "VIX data unavailable for this era."}
+
+        # Flatten MultiIndex if present
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+
+        # Normalize column names
+        raw.columns = [c.strip().title() for c in raw.columns]
+
+        if "Close" not in raw.columns:
+            return {"available": False, "warning": "VIX data missing Close column."}
+
+        if raw.index.tz is not None:
+            raw.index = raw.index.tz_localize(None)
+
+        vix = raw["Close"]
+        if not isinstance(vix, pd.Series):
+            return {"available": False, "warning": "VIX Close is not a Series."}
+
+        # Align to GSRI dates via forward-fill then reindex
+        gsri_idx = pd.DatetimeIndex(gsri_dates)
+        vix_aligned = vix.reindex(gsri_idx.union(vix.index)).ffill().reindex(gsri_idx)
+        vix_aligned = vix_aligned.dropna()
+
+        if len(vix_aligned) < 10:
+            return {"available": False, "warning": f"Only {len(vix_aligned)} VIX data points after alignment."}
+
+        return {
+            "vix_raw": vix_aligned,
+            "vix_normalized": normalize_series(vix_aligned),
+            "available": True,
+            "warning": None,
+        }
+
+    except Exception as e:
+        return {"available": False, "warning": f"VIX download failed: {e}"}
+
 # =============================================================================
 # CRISIS DEFINITIONS
 # =============================================================================
@@ -399,6 +476,9 @@ def compute_walkforward_gsri(
     snapshots = _build_snapshots(gsri_df, era)
     regime = _classify_regime(gsri_df, era)
 
+    # Fetch VIX for comparison
+    vix_data = fetch_vix_for_era(era, gsri_df["date"])
+
     return {
         "era": era,
         "era_key": era_key,
@@ -410,6 +490,7 @@ def compute_walkforward_gsri(
         "lookback": lookback,
         "thresholds": thresholds,
         "regime": regime,
+        "vix": vix_data,
     }
 
 

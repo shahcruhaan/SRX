@@ -1165,8 +1165,8 @@ elif page == "Historical Validation":
 
             st.markdown("---")
 
-            # ---- Dual-axis chart with RISK ZONE SHADING ----
-            st.markdown("### GSRI vs. Benchmark Price")
+            # ---- Dual-axis chart with RISK ZONE SHADING + VIX ----
+            st.markdown("### GSRI vs. VIX vs. Benchmark Price")
 
             from plotly.subplots import make_subplots
             fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -1201,6 +1201,21 @@ elif page == "Historical Validation":
                 line=dict(color="#d4a24e", width=2.5),
             ), secondary_y=True)
 
+            # VIX (normalized to 0-100)
+            vix_data = hv_result.get("vix", {})
+            has_vix = vix_data.get("available", False)
+
+            if has_vix:
+                vix_norm = vix_data["vix_normalized"]
+                fig.add_trace(go.Scatter(
+                    x=vix_norm.index, y=vix_norm.values,
+                    name="VIX (Normalized)", mode="lines",
+                    line=dict(color="#8a6a8a", width=1.5, dash="dash"),
+                    opacity=0.75,
+                ), secondary_y=True)
+            elif vix_data.get("warning"):
+                st.caption(f"⚠️ {vix_data['warning']}")
+
             # Shock multiplier markers
             shocked = gsri_df[gsri_df["shock_multiplier"] > 1.0]
             if not shocked.empty:
@@ -1224,10 +1239,61 @@ elif page == "Historical Validation":
             fig.update_layout(
                 **_cl(520, legend=dict(orientation="h", y=-0.12)),
                 yaxis_title=f"{hv_benchmark} Price ($)",
-                yaxis2_title="GSRI (0–100)",
+                yaxis2_title="Score (0–100)",
             )
             fig.update_yaxes(range=[0, 100], secondary_y=True, gridcolor=GRID)
             st.plotly_chart(fig, use_container_width=True)
+
+            # ---- GSRI vs VIX Comparison Stats ----
+            if has_vix:
+                st.markdown("### Signal Comparison: GSRI vs. VIX")
+
+                # GSRI first Elevated crossing
+                gsri_elevated = gsri_df[gsri_df["gsri"] >= 50]
+                gsri_first_50 = gsri_elevated.iloc[0]["date"] if not gsri_elevated.empty else None
+
+                # VIX breakout: normalized VIX > 50 (equivalent to crossing
+                # the midpoint of its own crisis-window range)
+                vix_norm = vix_data["vix_normalized"]
+                vix_breakout_mask = vix_norm[vix_norm > 50]
+                vix_first_50 = vix_breakout_mask.index[0] if not vix_breakout_mask.empty else None
+
+                # Compute lead times relative to crash date
+                gsri_lead = (crash_ts - gsri_first_50).days if gsri_first_50 is not None else None
+                vix_lead = (crash_ts - pd.Timestamp(vix_first_50)).days if vix_first_50 is not None else None
+
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric(
+                    "GSRI → Elevated",
+                    gsri_first_50.strftime("%Y-%m-%d") if gsri_first_50 is not None else "Never",
+                    delta=f"{gsri_lead}d before crash" if gsri_lead and gsri_lead > 0 else None,
+                    delta_color="normal" if gsri_lead and gsri_lead > 0 else "off",
+                )
+                sc2.metric(
+                    "VIX → Breakout",
+                    pd.Timestamp(vix_first_50).strftime("%Y-%m-%d") if vix_first_50 is not None else "Never",
+                    delta=f"{vix_lead}d before crash" if vix_lead and vix_lead > 0 else None,
+                    delta_color="normal" if vix_lead and vix_lead > 0 else "off",
+                )
+                sc3.metric(
+                    "GSRI Advantage",
+                    f"{gsri_lead - vix_lead}d earlier" if gsri_lead and vix_lead and gsri_lead > vix_lead else (
+                        "Same" if gsri_lead and vix_lead and gsri_lead == vix_lead else "—"
+                    ),
+                    help="Positive = GSRI provided earlier warning than VIX.",
+                )
+
+                st.markdown(
+                    f'<p class="narrative" style="margin-top:8px;">'
+                    f'The GSRI is a multi-dimensional systemic regime detector combining '
+                    f'volatility, liquidity, correlation, and drawdown signals. VIX reflects '
+                    f'implied equity volatility only. Comparing both against {hv_benchmark} '
+                    f'price helps evaluate whether the GSRI provides earlier or more '
+                    f'structurally useful warning signals than the market\'s standard fear gauge. '
+                    f'VIX breakout is defined as normalized VIX exceeding 50 (the midpoint '
+                    f'of its crisis-window range).</p>',
+                    unsafe_allow_html=True,
+                )
 
             # ---- Indicator Breakdown ----
             st.markdown("### Indicator Breakdown")
