@@ -23,6 +23,7 @@ from backend.stress_engine import run_stress_test
 from backend.clearinghouse_simulation import simulate_default_waterfall
 from backend.gating_engine import evaluate_gating
 from backend.historical_validation import compute_walkforward_gsri, CRISIS_ERAS, SHOCK_MULTIPLIER
+from backend.signal_engine import generate_systemic_signals, get_severity_color, get_primary_driver, get_gsri_trend
 
 # =============================================================================
 # CONFIG
@@ -347,9 +348,113 @@ if page == "Overview":
             st.metric("Gate", f"Level {gt['level']}", gt["label"],
                        help="SRS-based dynamic gating.")
 
-    # Shock status indicator
-    if isinstance(gd, dict) and gd.get("shock_active"):
-        st.warning("Shock Multiplier (1.25×) is currently ACTIVE — volatility or drawdown doubled within 5 trading days.")
+    # ================================================================
+    # SYSTEMIC STATUS SUMMARY + SIGNAL FEED
+    # ================================================================
+
+    if isinstance(gd, dict) and "gsri_history" in gd:
+        hdf_raw = pd.DataFrame(gd["gsri_history"])
+        shock_now = gd.get("shock_active", False)
+        gsri_val = gd.get("current_gsri", 0)
+        srs_val = gd.get("srs_current", 0)
+        sub = gd.get("sub_scores", {})
+        srs_comp = gd.get("srs_components", {})
+
+        # Merge sub_scores and srs_components for the signal engine
+        merged_components = {**sub, **srs_comp}
+
+        # Generate signals
+        signals = generate_systemic_signals(
+            current_gsri=gsri_val,
+            current_srs=srs_val,
+            components=merged_components,
+            history_df=hdf_raw if not hdf_raw.empty else pd.DataFrame(),
+            shock_multiplier_active=shock_now,
+        )
+
+        # Persist to session state (deduplicate by ID, cap at 20)
+        if "signal_log" not in st.session_state:
+            st.session_state.signal_log = []
+
+        existing_ids = {s["id"] for s in st.session_state.signal_log}
+        for s in signals:
+            if s["id"] not in existing_ids:
+                st.session_state.signal_log.insert(0, s)
+                existing_ids.add(s["id"])
+        st.session_state.signal_log = st.session_state.signal_log[:20]
+
+        # ---- Status Header ----
+        # Determine overall regime
+        if gsri_val >= 75:
+            regime_label, regime_color = "CRITICAL", CRITICAL
+        elif gsri_val >= 50:
+            regime_label, regime_color = "ELEVATED", ELEVATED
+        elif gsri_val >= 30:
+            regime_label, regime_color = "MONITORING", "#4a7ca0"
+        else:
+            regime_label, regime_color = "NORMAL", SAFE
+
+        # Primary driver and trend
+        primary_driver = get_primary_driver(merged_components)
+        trend = get_gsri_trend(hdf_raw)
+
+        trend_icon = {"Increasing": "↑", "Decreasing": "↓", "Stable": "→"}.get(trend, "→")
+        trend_color = {"Increasing": "#c49032", "Decreasing": SAFE, "Stable": TX2}.get(trend, TX2)
+
+        st.markdown(
+            f"<div style='background:{CARD};border:1px solid {BORDER};border-radius:8px;"
+            f"padding:12px 18px;margin-bottom:12px;'>"
+            f"<div style='display:flex;align-items:center;justify-content:space-between;'>"
+            f"<div>"
+            f"<span style='color:{TX3};font-size:0.7rem;letter-spacing:0.1em;'>"
+            f"SYSTEMIC STATUS SUMMARY</span><br>"
+            f"<span style='color:{regime_color};font-size:1.3rem;font-weight:700;'>"
+            f"{regime_label}</span><br>"
+            f"<span style='color:{trend_color};font-size:0.8rem;'>"
+            f"Trend: {trend_icon} {trend}</span>"
+            f"<span style='color:{TX3};font-size:0.8rem;margin-left:14px;'>"
+            f"Primary Driver: </span>"
+            f"<span style='color:{TX1};font-size:0.8rem;font-weight:600;'>"
+            f"{primary_driver}</span><br>"
+            f"<span style='color:{TX2};font-size:0.85rem;'>"
+            f"GSRI {gsri_val:.1f} &nbsp;|&nbsp; SRS {srs_val:.1f}</span>"
+            f"</div>"
+            f"<div style='text-align:right;'>"
+            f"<span style='color:{'#b83232' if shock_now else TX3};"
+            f"font-size:0.8rem;font-weight:{'700' if shock_now else '400'};'>"
+            f"{'⚡ SHOCK MULTIPLIER ACTIVE' if shock_now else 'Shock Multiplier: Inactive'}"
+            f"</span><br>"
+            f"<span style='color:{TX3};font-size:0.7rem;'>"
+            f"{len([s for s in signals if s['severity'] in ('Critical','Elevated')])} "
+            f"active alerts</span>"
+            f"</div></div></div>",
+            unsafe_allow_html=True,
+        )
+
+        # ---- Signal Feed (top 5) with timestamps ----
+        display_signals = signals[:5]
+        if display_signals:
+            for s in display_signals:
+                sc = get_severity_color(s["severity"])
+                # Format the market timestamp
+                ts = s.get("timestamp")
+                if hasattr(ts, "strftime"):
+                    ts_str = ts.strftime("%b %d")
+                else:
+                    ts_str = str(ts)[:10] if ts else ""
+
+                st.markdown(
+                    f"<div style='background:{sc['bg']};border-left:3px solid {sc['border']};"
+                    f"border-radius:4px;padding:8px 14px;margin-bottom:6px;'>"
+                    f"<span style='color:{sc['border']};font-weight:700;font-size:0.75rem;'>"
+                    f"{sc['icon']} {ts_str} — {s['severity'].upper()}</span>"
+                    f"<span style='color:{TX3};font-size:0.7rem;float:right;'>"
+                    f"{s['type']}</span><br>"
+                    f"<span style='color:{sc['text']};font-size:0.82rem;'>"
+                    f"{s['message']}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("---")
 
